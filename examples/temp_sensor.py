@@ -38,7 +38,9 @@ def _encode_temperature(temp_deg_c):
 async def sensor_task():
     t = 24.5
     while True:
-        temp_characteristic.write(_encode_temperature(t), send_update=True)
+        encode_temp = _encode_temperature(t)
+        temp_characteristic.write(encode_temp, send_update=True)
+        print("Temperature:", t, encode_temp)
         t += random.uniform(-0.5, 0.5)
         await asyncio.sleep_ms(1000)
 
@@ -49,7 +51,7 @@ async def peripheral_task():
     while True:
         async with await aioble.advertise(
             _ADV_INTERVAL_MS,
-            name="NARMI001",
+            name="mpy-temp",
             services=[_ENV_SENSE_UUID],
             appearance=_ADV_APPEARANCE_GENERIC_THERMOMETER,
         ) as connection:

@@ -63,7 +63,13 @@ _PASSKEY_ACTION_NUMCMP = const(4)
 
 
 class BLETemperature:
-    def __init__(self, ble, name="NARMI001"):
+    def __init__(self, ble, name="NARMI003"):
+        # 'addr_mode': Sets the address mode. Values can be:
+        # 0x00 - PUBLIC - Use the controller’s public address.
+        # 0x01 - RANDOM - Use a generated static address.
+        # 0x02 - RPA - Use resolvable private addresses.
+        # 0x03 - NRPA - Use non-resolvable private addresses.
+        # By default the interface mode will use a PUBLIC address if available, otherwise it will use a RANDOM address.
         self._ble = ble
         self._load_secrets()
         self._ble.irq(self._irq)
@@ -72,13 +78,18 @@ class BLETemperature:
         self._ble.config(mitm=True)
         self._ble.config(io=_IO_CAPABILITY_DISPLAY_YESNO)
         self._ble.active(True)
-        self._ble.config(addr_mode=2)
+        self._ble.config(addr_mode=0x00)
         ((self._handle,),) = self._ble.gatts_register_services((_ENV_SENSE_SERVICE,))
         self._connections = set()
+        self._disconnect_callback = None  # Add disconnect callback
         self._payload = advertising_payload(
             name=name, services=[_ENV_SENSE_UUID], appearance=_ADV_APPEARANCE_GENERIC_THERMOMETER
         )
         self._advertise()
+
+    def set_disconnect_callback(self, callback):
+        """Set callback to be called on disconnection"""
+        self._disconnect_callback = callback
 
     def _irq(self, event, data):
         # Track connections so we can send notifications.
@@ -89,7 +100,11 @@ class BLETemperature:
             conn_handle, _, _ = data
             self._connections.remove(conn_handle)
             self._save_secrets()
+            # Call disconnect callback if set
+            if self._disconnect_callback:
+                self._disconnect_callback(conn_handle)
             # Start advertising again to allow a new connection.
+            print("Disconnected::Start advertising again")
             self._advertise()
         elif event == _IRQ_ENCRYPTION_UPDATE:
             conn_handle, encrypted, authenticated, bonded, key_size = data
@@ -101,8 +116,8 @@ class BLETemperature:
                 accept = int(input("accept? "))
                 self._ble.gap_passkey(conn_handle, action, accept)
             elif action == _PASSKEY_ACTION_DISP:
-                print("displaying 123456")
-                self._ble.gap_passkey(conn_handle, action, 123456)
+                print("displaying 1234")
+                self._ble.gap_passkey(conn_handle, action, 1234)
             elif action == _PASSKEY_ACTION_INPUT:
                 print("prompting for passkey")
                 passkey = int(input("passkey? "))
@@ -154,7 +169,7 @@ class BLETemperature:
                     self._ble.gatts_indicate(conn_handle, self._handle)
 
     def _advertise(self, interval_us=500000):
-        self._ble.config(addr_mode=2)
+        self._ble.config(addr_mode=1)
         self._ble.gap_advertise(interval_us, adv_data=self._payload)
 
     def _load_secrets(self):
@@ -182,6 +197,11 @@ class BLETemperature:
 def demo():
     ble = bluetooth.BLE()
     temp = BLETemperature(ble)
+
+    def on_disconnect(conn_handle):
+        print("Device disconnected:", conn_handle)
+
+    temp.set_disconnect_callback(on_disconnect)
 
     t = 25
     i = 0

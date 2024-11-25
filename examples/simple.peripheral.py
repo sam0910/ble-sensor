@@ -93,13 +93,15 @@ def demo():
     i = 0
     while True:
         if p.is_connected():
+            print("Connected")
+            # p.send("GREETING" + str(i))
             # Short burst of queued notifications.
-            for _ in range(3):
-                data = str(i) + "_"
-                print("TX", data)
-                p.send(data)
-                i += 1
-        time.sleep_ms(100)
+            # for _ in range(3):
+            #     data = str(i) + "_"
+            #     print("TX", data)
+            #     p.send(data)
+            #     i += 1
+        time.sleep_ms(1000)
 
 
 if __name__ == "__main__":
