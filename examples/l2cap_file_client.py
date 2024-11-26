@@ -10,7 +10,7 @@ sys.path.append("")
 
 from micropython import const
 
-import asyncio
+import uasyncio as ayncio
 import aioble
 import bluetooth
 
@@ -52,9 +52,7 @@ class FileClient:
         try:
             print("Discovering...")
             file_service = await self._connection.service(_FILE_SERVICE_UUID)
-            self._control_characteristic = await file_service.characteristic(
-                _CONTROL_CHARACTERISTIC_UUID
-            )
+            self._control_characteristic = await file_service.characteristic(_CONTROL_CHARACTERISTIC_UUID)
         except asyncio.TimeoutError:
             print("Timeout discovering services/characteristics")
             return

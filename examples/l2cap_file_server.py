@@ -21,7 +21,7 @@ sys.path.append("")
 
 from micropython import const
 
-import asyncio
+import uasyncio as ayncio
 import aioble
 import bluetooth
 
@@ -52,9 +52,7 @@ _L2CAP_MTU = const(128)
 
 # Register GATT server.
 file_service = aioble.Service(_FILE_SERVICE_UUID)
-control_characteristic = aioble.Characteristic(
-    file_service, _CONTROL_CHARACTERISTIC_UUID, write=True, notify=True
-)
+control_characteristic = aioble.Characteristic(file_service, _CONTROL_CHARACTERISTIC_UUID, write=True, notify=True)
 aioble.register_services(file_service)
 
 
@@ -149,9 +147,7 @@ async def control_task(connection):
                     except OSError:
                         size = 0
                         status = _STATUS_NOT_FOUND
-                    control_characteristic.notify(
-                        connection, struct.pack("<BBI", seq, status, size)
-                    )
+                    control_characteristic.notify(connection, struct.pack("<BBI", seq, status, size))
     except aioble.DeviceDisconnectedError:
         return
 

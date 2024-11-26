@@ -6,7 +6,7 @@ from micropython import const
 import bluetooth
 import struct
 
-import asyncio
+import uasyncio as ayncio
 
 from .core import (
     ensure_active,
@@ -104,9 +104,7 @@ async def _cancel_pending():
 
 # Start connecting to a peripheral.
 # Call device.connect() rather than using method directly.
-async def _connect(
-    connection, timeout_ms, scan_duration_ms, min_conn_interval_us, max_conn_interval_us
-):
+async def _connect(connection, timeout_ms, scan_duration_ms, min_conn_interval_us, max_conn_interval_us):
     device = connection.device
     if device in _connecting:
         return

@@ -6,7 +6,7 @@ from micropython import const
 import bluetooth
 import struct
 
-import asyncio
+import uasyncio as ayncio
 
 from .core import (
     ensure_active,
@@ -142,9 +142,7 @@ async def advertise(
 
         if appearance:
             # See org.bluetooth.characteristic.gap.appearance.xml
-            resp_data = _append(
-                adv_data, resp_data, _ADV_TYPE_APPEARANCE, struct.pack("<H", appearance)
-            )
+            resp_data = _append(adv_data, resp_data, _ADV_TYPE_APPEARANCE, struct.pack("<H", appearance))
 
         if manufacturer:
             resp_data = _append(

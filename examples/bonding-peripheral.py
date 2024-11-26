@@ -16,7 +16,7 @@ import struct
 import time
 import json
 import binascii
-from ble_advertising import advertising_payload
+from aioble.ble_advertising import advertising_payload
 
 from micropython import const
 

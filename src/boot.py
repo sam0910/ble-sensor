@@ -10,7 +10,7 @@ def get_flash_info():
         # Calculate storage info in KB
         block_size = stats[0]  # Block size
         total_blocks = stats[2]  # Total blocks
-        free_blocks = stats[3]  # Free blocks
+        free_blocks = stats[3]  # Free blocks 3
 
         total_space = (block_size * total_blocks) / 1024  # Convert to KB
         free_space = (block_size * free_blocks) / 1024  # Convert to KB

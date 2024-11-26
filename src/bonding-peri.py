@@ -1,39 +1,29 @@
-# This example demonstrates a simple temperature sensor peripheral.
-#
-# The sensor's local value updates every second, and it will notify
-# any connected central every 10 seconds.
-#
-# Work-in-progress demo of implementing bonding and passkey auth.
-#
-# This example demonstrates the low-level bluetooth module. For most
-# applications, we recommend using the higher-level aioble library, which
-# includes an implementation of the secret store. See
-# https://github.com/micropython/micropython-lib/tree/master/micropython/bluetooth/aioble
-
 import bluetooth
 import random
 import struct
 import time
 import json
 import binascii
-from ble_advertising import advertising_payload
-
+from aioble.ble_advertising import advertising_payload
+from machine import Pin, time_pulse_us
+from sensor.distance import HCSR04
 from micropython import const
+import config as c
+
+DEVICE_NAME = const("NARMI000")
+BTN_DOWN = const(35)
+BTN_UP = const(34)
 
 _IRQ_CENTRAL_CONNECT = const(1)
 _IRQ_CENTRAL_DISCONNECT = const(2)
 _IRQ_GATTS_INDICATE_DONE = const(20)
-
 _IRQ_ENCRYPTION_UPDATE = const(28)
 _IRQ_PASSKEY_ACTION = const(31)
-
 _IRQ_GET_SECRET = const(29)
 _IRQ_SET_SECRET = const(30)
-
 _FLAG_READ = const(0x0002)
 _FLAG_NOTIFY = const(0x0010)
 _FLAG_INDICATE = const(0x0020)
-
 _FLAG_READ_ENCRYPTED = const(0x0200)
 
 # org.bluetooth.service.environmental_sensing
@@ -43,20 +33,26 @@ _TEMP_CHAR = (
     bluetooth.UUID(0x2A6E),
     _FLAG_READ | _FLAG_NOTIFY | _FLAG_INDICATE | _FLAG_READ_ENCRYPTED,
 )
+# Custom UUID for distance
+_DISTANCE_CHAR_UUID = bluetooth.UUID(0x2A5B)
+_DISTANCE_CHAR = (
+    _DISTANCE_CHAR_UUID,
+    _FLAG_READ | _FLAG_NOTIFY | _FLAG_INDICATE | _FLAG_READ_ENCRYPTED,
+)
 _ENV_SENSE_SERVICE = (
     _ENV_SENSE_UUID,
-    (_TEMP_CHAR,),
+    (
+        _TEMP_CHAR,
+        _DISTANCE_CHAR,
+    ),
 )
-
 # org.bluetooth.characteristic.gap.appearance.xml
 _ADV_APPEARANCE_GENERIC_THERMOMETER = const(768)
-
 _IO_CAPABILITY_DISPLAY_ONLY = const(0)
 _IO_CAPABILITY_DISPLAY_YESNO = const(1)
 _IO_CAPABILITY_KEYBOARD_ONLY = const(2)
 _IO_CAPABILITY_NO_INPUT_OUTPUT = const(3)
 _IO_CAPABILITY_KEYBOARD_DISPLAY = const(4)
-
 _PASSKEY_ACTION_INPUT = const(2)
 _PASSKEY_ACTION_DISP = const(3)
 _PASSKEY_ACTION_NUMCMP = const(4)
@@ -65,11 +61,10 @@ _ADDR_MODE = 0x01
 # 0x01 - RANDOM - Use a generated static address.
 # 0x02 - RPA - Use resolvable private addresses.
 # 0x03 - NRPA - Use non-resolvable private addresses.
-# 72:2F:0c:90:60:33
 
 
 class BLETemperature:
-    def __init__(self, ble, name="NARMI006"):
+    def __init__(self, ble, name=DEVICE_NAME):
         self._ble = ble
         self.name = name
         self._load_secrets()
@@ -80,7 +75,9 @@ class BLETemperature:
         self._ble.config(io=_IO_CAPABILITY_NO_INPUT_OUTPUT)
         self._ble.active(True)
         self._ble.config(addr_mode=_ADDR_MODE)
-        ((self._handle,),) = self._ble.gatts_register_services((_ENV_SENSE_SERVICE,))
+        self.distance = HCSR04()
+        ((self._temp_handle, self._distance_handle),) = self._ble.gatts_register_services((_ENV_SENSE_SERVICE,))
+
         self._connections = set()
         self._payload = advertising_payload(
             name=name, services=[_ENV_SENSE_UUID], appearance=_ADV_APPEARANCE_GENERIC_THERMOMETER
@@ -158,20 +155,32 @@ class BLETemperature:
                 return self._secrets.get(key, None)
 
     def set_temperature(self, temp_deg_c, notify=False, indicate=False):
-        # Data is sint16 in degrees Celsius with a resolution of 0.01 degrees Celsius.
         # Write the local value, ready for a central to read.
-        self._ble.gatts_write(self._handle, struct.pack("<h", int(temp_deg_c * 100)))
+        self._ble.gatts_write(self._temp_handle, struct.pack("<h", int(temp_deg_c * 100)))
         if notify or indicate:
             for conn_handle in self._connections:
                 if notify:
-                    # Notify connected centrals.
-                    self._ble.gatts_notify(conn_handle, self._handle)
-                    # print("notifying")
+                    self._ble.gatts_notify(conn_handle, self._temp_handle)
+                    print("- Sending TEMPERATURE notify")
                 if indicate:
-                    # Track this indication request
                     self._pending_indications[conn_handle] = time.ticks_ms()
-                    self._ble.gatts_indicate(conn_handle, self._handle)
-                    print(f"Sending indication to client (handle: {conn_handle})")
+                    self._ble.gatts_indicate(conn_handle, self._temp_handle)
+                    print(f"- Sending TEMPERATURE indication (handle: {conn_handle})")
+
+    def measure_distance(self):
+        return self.distance.measure_distance_cm()
+
+    def set_distance(self, distance_cm, notify=False, indicate=False):
+        # Pack distance as uint16 in mm
+        self._ble.gatts_write(self._distance_handle, struct.pack("<H", int(distance_cm * 10)))
+        if notify or indicate:
+            for conn_handle in self._connections:
+                if notify:
+                    self._ble.gatts_notify(conn_handle, self._distance_handle)
+                if indicate:
+                    self._pending_indications[conn_handle] = time.ticks_ms()
+                    self._ble.gatts_indicate(conn_handle, self._distance_handle)
+                    print(f"- Sending DISTANCE indication (handle: {conn_handle})")
 
     def _advertise(self, interval_us=400000):
         mac = self._ble.config("mac")
@@ -181,6 +190,10 @@ class BLETemperature:
             name=self.name, services=[_ENV_SENSE_UUID], appearance=_ADV_APPEARANCE_GENERIC_THERMOMETER
         )
         self._ble.gap_advertise(interval_us, adv_data=self._payload)
+
+    def _reset_secrets(self):
+        self._secrets = []
+        self._save_secrets()
 
     def _load_secrets(self):
         self._secrets = {}
@@ -209,24 +222,16 @@ def demo():
     temp = BLETemperature(ble)
 
     t = 25
-    i = 0
-
     while True:
-        # Write every second, notify every 10 seconds.
-        # i = (i + 1) % 10
+        # Get temperature and distance measurements
         temp.set_temperature(t, notify=False, indicate=True)
-        # Random walk the temperature.
+        distance = temp.measure_distance()
+        temp.set_distance(distance, notify=False, indicate=True)
+
+        # Random walk the temperature
         t += random.uniform(-0.5, 0.5)
         time.sleep_ms(3000)
 
 
 if __name__ == "__main__":
     demo()
-
-
-# passkey action 0 4 386159
-# accept?
-# Unhandled exception in IRQ callback handler
-# Traceback (most recent call last):
-#   File "<stdin>", line 102, in _irq
-# ValueError: invalid syntax for integer with base 10

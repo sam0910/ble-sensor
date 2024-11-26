@@ -5,7 +5,7 @@ sys.path.append("")
 
 from micropython import const
 
-import asyncio
+import uasyncio as ayncio
 import aioble
 import bluetooth
 

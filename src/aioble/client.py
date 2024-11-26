@@ -3,7 +3,7 @@
 
 from micropython import const
 from collections import deque
-import asyncio
+import uasyncio as ayncio
 import struct
 
 import bluetooth
@@ -42,17 +42,13 @@ _FLAG_INDICATE = const(0x0020)
 def _client_irq(event, data):
     if event == _IRQ_GATTC_SERVICE_RESULT:
         conn_handle, start_handle, end_handle, uuid = data
-        ClientDiscover._discover_result(
-            conn_handle, start_handle, end_handle, bluetooth.UUID(uuid)
-        )
+        ClientDiscover._discover_result(conn_handle, start_handle, end_handle, bluetooth.UUID(uuid))
     elif event == _IRQ_GATTC_SERVICE_DONE:
         conn_handle, status = data
         ClientDiscover._discover_done(conn_handle, status)
     elif event == _IRQ_GATTC_CHARACTERISTIC_RESULT:
         conn_handle, end_handle, value_handle, properties, uuid = data
-        ClientDiscover._discover_result(
-            conn_handle, end_handle, value_handle, properties, bluetooth.UUID(uuid)
-        )
+        ClientDiscover._discover_result(conn_handle, end_handle, value_handle, properties, bluetooth.UUID(uuid))
     elif event == _IRQ_GATTC_CHARACTERISTIC_DONE:
         conn_handle, status = data
         ClientDiscover._discover_done(conn_handle, status)
@@ -327,9 +323,7 @@ class ClientCharacteristic(BaseClientCharacteristic):
             self._indicate_queue = deque((), 1)
 
     def __str__(self):
-        return "Characteristic: {} {} {} {}".format(
-            self._end_handle, self._value_handle, self.properties, self.uuid
-        )
+        return "Characteristic: {} {} {} {}".format(self._end_handle, self._value_handle, self.properties, self.uuid)
 
     def _connection(self):
         return self.service.connection
@@ -401,17 +395,13 @@ class ClientCharacteristic(BaseClientCharacteristic):
     # Map an incoming notify IRQ to a registered characteristic.
     def _on_notify(conn_handle, value_handle, notify_data):
         if characteristic := ClientCharacteristic._find(conn_handle, value_handle):
-            characteristic._on_notify_indicate(
-                characteristic._notify_queue, characteristic._notify_event, notify_data
-            )
+            characteristic._on_notify_indicate(characteristic._notify_queue, characteristic._notify_event, notify_data)
 
     # Wait for the next indication.
     # Will return immediately if an indication has already been received.
     async def indicated(self, timeout_ms=None):
         self._check(_FLAG_INDICATE)
-        return await self._notified_indicated(
-            self._indicate_queue, self._indicate_event, timeout_ms
-        )
+        return await self._notified_indicated(self._indicate_queue, self._indicate_event, timeout_ms)
 
     # Map an incoming indicate IRQ to a registered characteristic.
     def _on_indicate(conn_handle, value_handle, indicate_data):

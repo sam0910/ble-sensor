@@ -4,7 +4,7 @@
 from micropython import const
 from collections import deque
 import bluetooth
-import asyncio
+import uasyncio as ayncio
 
 from .core import (
     ensure_active,
@@ -110,9 +110,7 @@ class BaseCharacteristic:
         BaseCharacteristic._capture_queue = deque((), _WRITE_CAPTURE_QUEUE_LIMIT)
         BaseCharacteristic._capture_write_event = asyncio.ThreadSafeFlag()
         BaseCharacteristic._capture_consumed_event = asyncio.ThreadSafeFlag()
-        BaseCharacteristic._capture_task = asyncio.create_task(
-            BaseCharacteristic._run_capture_task()
-        )
+        BaseCharacteristic._capture_task = asyncio.create_task(BaseCharacteristic._run_capture_task())
 
     # Monitor the shared queue for incoming characteristic writes and forward
     # them sequentially to the individual characteristic events.
@@ -214,9 +212,7 @@ class Characteristic(BaseCharacteristic):
         if read:
             flags |= _FLAG_READ
         if write or write_no_response:
-            flags |= (_FLAG_WRITE if write else 0) | (
-                _FLAG_WRITE_NO_RESPONSE if write_no_response else 0
-            )
+            flags |= (_FLAG_WRITE if write else 0) | (_FLAG_WRITE_NO_RESPONSE if write_no_response else 0)
             if capture:
                 # Capture means that we keep track of all writes, and capture
                 # their values (and connection) in a queue. Otherwise we just
