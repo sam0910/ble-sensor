@@ -5,11 +5,27 @@ const BLEContext = createContext(null);
 // ESP32 Environmental Sensing Service UUID
 const ENV_SENSE_UUID = 0x181a;
 const TEMP_CHAR_UUID = 0x2a6e;
+const DISTANCE_CHAR_UUID = 0x2a5b; // Add distance characteristic UUID
 
 export const BLEProvider = ({ children }) => {
     const [device, setDevice] = useState(null);
     const [isConnected, setIsConnected] = useState(false);
     const [temperature, setTemperature] = useState(null);
+    const [distance, setDistance] = useState(null); // Add distance state
+    const [lastReceived, setLastReceived] = useState(null); // Add last received state
+
+    const registerBackgroundSync = async () => {
+        try {
+            if ("serviceWorker" in navigator && "periodicSync" in navigator.serviceWorker) {
+                const registration = await navigator.serviceWorker.ready;
+                await registration.periodicSync.register("ble-sync", {
+                    minInterval: 60 * 1000, // Minimum 1 minute
+                });
+            }
+        } catch (error) {
+            console.error("Background sync registration failed:", error);
+        }
+    };
 
     const connectToDevice = async () => {
         try {
@@ -41,18 +57,47 @@ export const BLEProvider = ({ children }) => {
             console.log("Getting Environmental Service...");
             const service = await server.getPrimaryService(ENV_SENSE_UUID);
 
-            // Handle encrypted characteristic
+            // Handle temperature characteristic
             console.log("Getting Temperature Characteristic...");
-            const characteristic = await service.getCharacteristic(TEMP_CHAR_UUID);
+            const tempCharacteristic = await service.getCharacteristic(TEMP_CHAR_UUID);
 
-            // Enable notifications with encryption
-            await characteristic.startNotifications();
-            characteristic.addEventListener("characteristicvaluechanged", (event) => {
+            // Handle distance characteristic
+            console.log("Getting Distance Characteristic...");
+            const distanceCharacteristic = await service.getCharacteristic(DISTANCE_CHAR_UUID);
+
+            // Enable notifications for temperature
+            await tempCharacteristic.startNotifications();
+            tempCharacteristic.addEventListener("characteristicvaluechanged", (event) => {
                 const value = event.target.value;
                 const temp = value.getInt16(0, true) / 100;
+                const timestamp = new Date().toLocaleString();
+
+                // Store data for background sync
+                const data = { temperature: temp, timestamp };
+                localStorage.setItem("latest_temperature", JSON.stringify(data));
+
                 console.log("Received encrypted temperature:", temp);
                 setTemperature(temp);
+                setLastReceived(timestamp);
             });
+
+            // Enable notifications for distance
+            await distanceCharacteristic.startNotifications();
+            distanceCharacteristic.addEventListener("characteristicvaluechanged", (event) => {
+                const value = event.target.value;
+                const dist = value.getUint16(0, true) / 10; // Convert mm to cm
+                const timestamp = new Date().toLocaleString();
+
+                // Store data for background sync
+                const data = { distance: dist, timestamp };
+                localStorage.setItem("latest_distance", JSON.stringify(data));
+
+                console.log("Received encrypted distance:", dist);
+                setDistance(dist);
+                setLastReceived(timestamp);
+            });
+
+            await registerBackgroundSync();
 
             setDevice(device);
             setIsConnected(true);
@@ -62,6 +107,7 @@ export const BLEProvider = ({ children }) => {
                 console.log("Disconnected - Bond status may need refresh");
                 setIsConnected(false);
                 setTemperature(null);
+                setDistance(null); // Reset distance on disconnection
             });
         } catch (error) {
             console.error("Connection error:", error);
@@ -85,6 +131,8 @@ export const BLEProvider = ({ children }) => {
                 device,
                 isConnected,
                 temperature,
+                distance, // Add distance to context value
+                lastReceived, // Add last received to context value
                 connectToDevice,
                 disconnect,
             }}>
