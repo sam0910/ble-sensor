@@ -13,6 +13,19 @@ import { useMediaQuery } from "react-responsive";
 // ipconfig getifaddr en0
 function BLEControl() {
     const { isConnected, connectToDevice, disconnect, temperature, distance, lastReceived } = useBLE();
+    const [dataCounter, setDataCounter] = useState(0);
+
+    useEffect(() => {
+        if (temperature !== null || distance !== null) {
+            setDataCounter((prev) => prev + 1);
+        }
+    }, [temperature, distance]);
+
+    useEffect(() => {
+        if (!isConnected) {
+            setDataCounter(0);
+        }
+    }, [isConnected]);
 
     return (
         <Card className="w-full p-2">
@@ -55,13 +68,21 @@ function BLEControl() {
                         Connect to Device
                     </Button>
                 )}
-                <div className="text-base md:text-lg text-center">
+                <div className="text-base md:text-lg text-center flex items-center justify-center gap-2">
                     <Label>
                         Status:
                         <Badge variant={isConnected ? "success" : "destructive"} className="ml-2">
                             {isConnected ? "Connected" : "Disconnected"}
                         </Badge>
                     </Label>
+                    {isConnected && (
+                        <Label>
+                            Received:
+                            <Badge variant="outline" className="ml-2">
+                                {dataCounter}
+                            </Badge>
+                        </Label>
+                    )}
                 </div>
             </CardContent>
         </Card>

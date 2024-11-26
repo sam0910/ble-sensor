@@ -21,7 +21,7 @@ class HCSR04:
 
         # Return -1 if timeout occurs
         if duration < 0:
-            return -1
+            return 0
 
         # Calculate distance in cm
         # Speed of sound is approximately 343m/s or 34300cm/s

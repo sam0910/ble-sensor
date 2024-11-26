@@ -5,10 +5,13 @@ import time
 import json
 import binascii
 from aioble.ble_advertising import advertising_payload
-from machine import Pin, time_pulse_us
+from machine import Pin, time_pulse_us, lightsleep, freq
 from sensor.distance import HCSR04
 from micropython import const
 import config as c
+import uasyncio as asyncio
+from driver.iqsbuttons import IQSButtons
+import gc
 
 DEVICE_NAME = const("NARMI000")
 BTN_DOWN = const(35)
@@ -56,17 +59,26 @@ _IO_CAPABILITY_KEYBOARD_DISPLAY = const(4)
 _PASSKEY_ACTION_INPUT = const(2)
 _PASSKEY_ACTION_DISP = const(3)
 _PASSKEY_ACTION_NUMCMP = const(4)
-_ADDR_MODE = 0x01
+_ADDR_MODE = 0x00
 # 0x00 - PUBLIC - Use the controller’s public address.
 # 0x01 - RANDOM - Use a generated static address.
 # 0x02 - RPA - Use resolvable private addresses.
 # 0x03 - NRPA - Use non-resolvable private addresses.
 
+freq(160_000_000)
+gc.collect()
+gc.enable()
+
+3
+
 
 class BLETemperature:
     def __init__(self, ble, name=DEVICE_NAME):
         self._ble = ble
-        self.name = name
+        self.loop = asyncio.get_event_loop()
+        # self.btns = IQSButtons(self.btn_cb, 35, 34, loop=self.loop)
+        self._name = name
+        self.t = 25
         self._load_secrets()
         self._ble.irq(self._irq)
         self._ble.config(bond=True)
@@ -76,6 +88,9 @@ class BLETemperature:
         self._ble.active(True)
         self._ble.config(addr_mode=_ADDR_MODE)
         self.distance = HCSR04()
+        self.INTERVAL_MS = 1000
+        self.INTERVAL_GAP = 0
+        self.pending_sleep = 0
         ((self._temp_handle, self._distance_handle),) = self._ble.gatts_register_services((_ENV_SENSE_SERVICE,))
 
         self._connections = set()
@@ -120,7 +135,10 @@ class BLETemperature:
         elif event == _IRQ_GATTS_INDICATE_DONE:
             conn_handle, value_handle, status = data
             if status == 0:
-                print(f"Indication confirmed by client (handle: {conn_handle})")
+                if self.pending_sleep == 0:
+                    self.pending_sleep = time.ticks_ms()
+                print(f" -> Indication confirmed (handle: {conn_handle})", self.pending_sleep)
+
             else:
                 print(f"Indication failed (handle: {conn_handle}, status: {status})")
             if conn_handle in self._pending_indications:
@@ -154,6 +172,17 @@ class BLETemperature:
                 key = sec_type, bytes(key)
                 return self._secrets.get(key, None)
 
+    def btn_cb(self, args):
+        btn = args[0]
+        type = args[1]
+        print("     [BTN_CB],", btn, type)
+        if btn == 2 and type == 1:
+            self.INTERVAL_MS = self.INTERVAL_MS + 1000
+            print("     [INTERVAL_MS],", self.INTERVAL_MS)
+        elif btn == 1 and type == 1 and self.INTERVAL_MS > 1000:
+            self.INTERVAL_MS = self.INTERVAL_MS - 1000
+            print("     [INTERVAL_MS],", self.INTERVAL_MS)
+
     def set_temperature(self, temp_deg_c, notify=False, indicate=False):
         # Write the local value, ready for a central to read.
         self._ble.gatts_write(self._temp_handle, struct.pack("<h", int(temp_deg_c * 100)))
@@ -182,12 +211,12 @@ class BLETemperature:
                     self._ble.gatts_indicate(conn_handle, self._distance_handle)
                     print(f"- Sending DISTANCE indication (handle: {conn_handle})")
 
-    def _advertise(self, interval_us=400000):
+    def _advertise(self, interval_us=200000):
         mac = self._ble.config("mac")
         mac_address_str = ":".join([f"{b:02x}" for b in mac[1]])
         print("\nStarting BLE advertising with address:", mac_address_str)
         self._payload = advertising_payload(
-            name=self.name, services=[_ENV_SENSE_UUID], appearance=_ADV_APPEARANCE_GENERIC_THERMOMETER
+            name=self._name, services=[_ENV_SENSE_UUID], appearance=_ADV_APPEARANCE_GENERIC_THERMOMETER
         )
         self._ble.gap_advertise(interval_us, adv_data=self._payload)
 
@@ -216,22 +245,63 @@ class BLETemperature:
         except:
             print("failed to save secrets")
 
+    async def update_temperature(self):
+        while True:
+            self.set_temperature(self.t, notify=False, indicate=True)
+            self.t += random.uniform(-0.5, 0.5)
+            distance = self.measure_distance()
+            self.set_distance(distance, notify=False, indicate=True)
+            await asyncio.sleep_ms(self.INTERVAL_MS)
+            await asyncio.sleep_ms(self.INTERVAL_GAP)
 
-def demo():
-    ble = bluetooth.BLE()
-    temp = BLETemperature(ble)
+    async def update_distance(self):
+        while True:
+            pass
 
-    t = 25
-    while True:
-        # Get temperature and distance measurements
-        temp.set_temperature(t, notify=False, indicate=True)
-        distance = temp.measure_distance()
-        temp.set_distance(distance, notify=False, indicate=True)
+    async def loops(self):
+        self.loop.run_forever()
 
-        # Random walk the temperature
-        t += random.uniform(-0.5, 0.5)
-        time.sleep_ms(3000)
+    async def check_buttons(self):
+        while True:
+            await asyncio.sleep_ms(500)
+            print("Checking buttons", Pin(BTN_DOWN).value(), Pin(BTN_UP).value())
+
+    async def go_sleep(self):
+        while True:
+            await asyncio.sleep_ms(500)
+            if self.pending_sleep > 0:
+                print("pending_sleep > 0", self.pending_sleep)
+                after_pending_sleep = time.ticks_diff(time.ticks_ms(), self.pending_sleep)
+                print(
+                    f"after_pending_sleep({after_pending_sleep}) = time.ticks_diff(time.ticks_ms({time.ticks_ms()}), self.pending_sleep({self.pending_sleep}))"
+                )
+                print("after_pending_sleep", after_pending_sleep, ",sleeps for", self.INTERVAL_MS)
+                if after_pending_sleep > 3000:
+                    print("Going to sleep")
+                    await asyncio.sleep_ms(100)
+
+                    lightsleep(self.INTERVAL_MS)
+                    self.pending_sleep = 0
+
+    def start(self):
+        self.btns = IQSButtons(self.btn_cb, 35, 34, loop=self.loop)
+        temp_task = self.loop.create_task(self.update_temperature())
+        # temp_task = self.loop.create_task(self.check_buttons())
+        # ps = self.loop.create_task(self.go_sleep())
+
+        try:
+            asyncio.run(self.loops())
+
+        except KeyboardInterrupt:
+            print("Interrupted")
+            temp_task.cancel()
+            # dist_task.cancel()
+        finally:
+            self.loop.close()
 
 
 if __name__ == "__main__":
-    demo()
+    ble = bluetooth.BLE()
+    temp = BLETemperature(ble)
+
+    temp.start()
