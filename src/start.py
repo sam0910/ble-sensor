@@ -42,11 +42,18 @@ _DISTANCE_CHAR = (
     _DISTANCE_CHAR_UUID,
     _FLAG_READ | _FLAG_NOTIFY | _FLAG_INDICATE | _FLAG_READ_ENCRYPTED,
 )
+# Custom UUID for interval - using Time Interval characteristic
+_INTERVAL_CHAR_UUID = bluetooth.UUID(0x2A24)
+_INTERVAL_CHAR = (
+    _INTERVAL_CHAR_UUID,
+    _FLAG_READ | _FLAG_NOTIFY | _FLAG_INDICATE | _FLAG_READ_ENCRYPTED,
+)
 _ENV_SENSE_SERVICE = (
     _ENV_SENSE_UUID,
     (
         _TEMP_CHAR,
         _DISTANCE_CHAR,
+        _INTERVAL_CHAR,
     ),
 )
 # org.bluetooth.characteristic.gap.appearance.xml
@@ -91,7 +98,9 @@ class BLETemperature:
         self.INTERVAL_MS = 1000
         self.INTERVAL_GAP = 0
         self.pending_sleep = 0
-        ((self._temp_handle, self._distance_handle),) = self._ble.gatts_register_services((_ENV_SENSE_SERVICE,))
+        ((self._temp_handle, self._distance_handle, self._interval_handle),) = self._ble.gatts_register_services(
+            (_ENV_SENSE_SERVICE,)
+        )
 
         self._connections = set()
         self._payload = advertising_payload(
@@ -107,6 +116,8 @@ class BLETemperature:
             conn_handle, _, _ = data
             print("\nConnected to central device")
             self._connections.add(conn_handle)
+            # Send initial interval value when device connects
+            self.set_interval(self.INTERVAL_MS, indicate=True)
         elif event == _IRQ_CENTRAL_DISCONNECT:
             conn_handle, _, _ = data
             print("\nDisconnected from central device")
@@ -179,9 +190,11 @@ class BLETemperature:
         if btn == 2 and type == 1:
             self.INTERVAL_MS = self.INTERVAL_MS + 1000
             print("     [INTERVAL_MS],", self.INTERVAL_MS)
+            self.set_interval(self.INTERVAL_MS, indicate=True)
         elif btn == 1 and type == 1 and self.INTERVAL_MS > 1000:
             self.INTERVAL_MS = self.INTERVAL_MS - 1000
             print("     [INTERVAL_MS],", self.INTERVAL_MS)
+            self.set_interval(self.INTERVAL_MS, indicate=True)
 
     def set_temperature(self, temp_deg_c, notify=False, indicate=False):
         # Write the local value, ready for a central to read.
@@ -210,6 +223,18 @@ class BLETemperature:
                     self._pending_indications[conn_handle] = time.ticks_ms()
                     self._ble.gatts_indicate(conn_handle, self._distance_handle)
                     print(f"- Sending DISTANCE indication (handle: {conn_handle})")
+
+    # Add new method to set interval
+    def set_interval(self, interval_ms, notify=False, indicate=False):
+        self._ble.gatts_write(self._interval_handle, struct.pack("<I", interval_ms))
+        if notify or indicate:
+            for conn_handle in self._connections:
+                if notify:
+                    self._ble.gatts_notify(conn_handle, self._interval_handle)
+                if indicate:
+                    self._pending_indications[conn_handle] = time.ticks_ms()
+                    self._ble.gatts_indicate(conn_handle, self._interval_handle)
+                    print(f"- Sending INTERVAL indication (handle: {conn_handle})")
 
     def _advertise(self, interval_us=200000):
         mac = self._ble.config("mac")

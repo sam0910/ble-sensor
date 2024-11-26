@@ -12,14 +12,14 @@ import { useMediaQuery } from "react-responsive";
 
 // ipconfig getifaddr en0
 function BLEControl() {
-    const { isConnected, connectToDevice, disconnect, temperature, distance, lastReceived } = useBLE();
+    const { isConnected, connectToDevice, disconnect, temperature, distance, interval, lastReceived } = useBLE();
     const [dataCounter, setDataCounter] = useState(0);
 
     useEffect(() => {
-        if (temperature !== null || distance !== null) {
+        if (temperature !== null || distance !== null || interval !== null) {
             setDataCounter((prev) => prev + 1);
         }
-    }, [temperature, distance]);
+    }, [temperature, distance, interval]);
 
     useEffect(() => {
         if (!isConnected) {
@@ -52,6 +52,12 @@ function BLEControl() {
                                 <Badge className="ml-2">
                                     {distance !== null ? `${distance.toFixed(1)} cm` : "Reading..."}
                                 </Badge>
+                            </Label>
+                        </div>
+                        <div className="text-xl md:text-2xl">
+                            <Label>
+                                Interval:
+                                <Badge className="ml-2">{interval !== null ? `${interval} ms` : "Reading..."}</Badge>
                             </Label>
                         </div>
                         <div className="text-sm md:text-base text-center">

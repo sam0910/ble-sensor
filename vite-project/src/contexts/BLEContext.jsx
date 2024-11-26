@@ -6,12 +6,14 @@ const BLEContext = createContext(null);
 const ENV_SENSE_UUID = 0x181a;
 const TEMP_CHAR_UUID = 0x2a6e;
 const DISTANCE_CHAR_UUID = 0x2a5b; // Add distance characteristic UUID
+const INTERVAL_CHAR_UUID = 0x2a24; // Add interval characteristic UUID
 
 export const BLEProvider = ({ children }) => {
     const [device, setDevice] = useState(null);
     const [isConnected, setIsConnected] = useState(false);
     const [temperature, setTemperature] = useState(null);
     const [distance, setDistance] = useState(null); // Add distance state
+    const [interval, setInterval] = useState(null); // Add interval state
     const [lastReceived, setLastReceived] = useState(null); // Add last received state
 
     const registerBackgroundSync = async () => {
@@ -65,6 +67,10 @@ export const BLEProvider = ({ children }) => {
             console.log("Getting Distance Characteristic...");
             const distanceCharacteristic = await service.getCharacteristic(DISTANCE_CHAR_UUID);
 
+            // Handle interval characteristic
+            console.log("Getting Interval Characteristic...");
+            const intervalCharacteristic = await service.getCharacteristic(INTERVAL_CHAR_UUID);
+
             // Enable notifications for temperature
             await tempCharacteristic.startNotifications();
             tempCharacteristic.addEventListener("characteristicvaluechanged", (event) => {
@@ -97,6 +103,22 @@ export const BLEProvider = ({ children }) => {
                 setLastReceived(timestamp);
             });
 
+            // Enable notifications for interval
+            await intervalCharacteristic.startNotifications();
+            intervalCharacteristic.addEventListener("characteristicvaluechanged", (event) => {
+                const value = event.target.value;
+                const intervalMs = value.getUint32(0, true); // Get interval as uint32
+                const timestamp = new Date().toLocaleString();
+
+                // Store data for background sync
+                const data = { interval: intervalMs, timestamp };
+                localStorage.setItem("latest_interval", JSON.stringify(data));
+
+                console.log("Received interval:", intervalMs);
+                setInterval(intervalMs);
+                setLastReceived(timestamp);
+            });
+
             await registerBackgroundSync();
 
             setDevice(device);
@@ -108,6 +130,7 @@ export const BLEProvider = ({ children }) => {
                 setIsConnected(false);
                 setTemperature(null);
                 setDistance(null); // Reset distance on disconnection
+                setInterval(null); // Reset interval on disconnection
             });
         } catch (error) {
             console.error("Connection error:", error);
@@ -132,6 +155,7 @@ export const BLEProvider = ({ children }) => {
                 isConnected,
                 temperature,
                 distance, // Add distance to context value
+                interval, // Add interval to context value
                 lastReceived, // Add last received to context value
                 connectToDevice,
                 disconnect,

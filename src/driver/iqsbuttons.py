@@ -12,7 +12,7 @@ class IQSButtons:
         self.dive = ["NORMAL", 0, 0, 0]
 
         btn1 = Pushbutton(Pin(btn1), suppress=True, sense=0, lock=lock, loop=loop)
-        btn2 = Pushbutton(Pin(btn2), suppress=True, sense=1, lock=lock, loop=loop)
+        btn2 = Pushbutton(Pin(btn2), suppress=True, sense=0, lock=lock, loop=loop)
         Pushbutton.long_press_ms = 1200
         Pushbutton.debounce_ms = 10
         # Pushbutton.double_click_ms = 400
